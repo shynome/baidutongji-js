@@ -1,0 +1,44 @@
+xcache: &cache
+    image: drillster/drone-volume-cache
+    mount: [ './node_modules', '/drone/docker' ]
+    volumes: [ '/tmp/cache:/cache' ]
+
+branches: [ dev ]
+
+pipeline:
+
+  restore-cache:
+    <<: *cache
+    restore: true
+
+  build:
+    image: shynome/npm-build
+    commands:
+    - npm-install
+    - npm run preversion
+    - mv $(npm pack) npm-pack.tgz
+    - node -e "s='';require('https').get('https://gitlab.com/shynome/drone-utils/raw/master/set_tags.js',r=>r.on('data',d=>s+=d).on('end',()=>console.log(s)))" | node
+
+  rebuild-npm-cache:
+    <<: *cache
+    rebuild: true
+    mount: [ './node_modules' ]
+
+  publish:
+    image: plugins/docker
+    repo: registry.gitlab.com/${DRONE_REPO%%-docker}
+    registry: registry.gitlab.com
+    secrets: [ docker_username, docker_password ]
+    dockerfile: Dockerfile
+    storage_path: /drone/docker
+
+  rebuild-docker-cache:
+    <<: *cache
+    rebuild: true
+    mount: [ '/drone/docker' ]
+
+  report:
+    image: shynome/alpine-drone-ci
+    when: { status: [ failure ] }
+    secrets: [ report_hook ]
+    deploy: report
